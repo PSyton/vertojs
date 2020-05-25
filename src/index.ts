@@ -38,14 +38,15 @@ interface VertoOptions {
 	transportConfig	: JsonRpcClientParams
 	rtcConfig?		: RTCConfiguration
 	debug?			: boolean
-	ice_timeout?	: number
+	ice_timeout?: number
+	localSdpCallback?: { (sdp: string): string }
 }
 
 interface VertoCallOptions {
 	caller_id_number?	: string
 	caller_id_name?		: string
 	callee_id_number?	: string
-	callee_id_name?		: string
+	callee_id_name?: string
 }
 
 const vertoInvite = 'verto.invite'
@@ -78,15 +79,15 @@ class VertoCall extends VertoBase{
 		this.rtc = new VertoRtc(conf, this.direction, ice_timeout, debug)
 		this.rpc = rpc
 
-		this.rtc.subscribeEvent('send-offer', sessionDescription => {
+		this.rtc.subscribeEvent('send-offer', sdp => {
 			let dialogParams = Object.assign({}, this.options)
 			dialogParams = Object.assign(dialogParams, {destination_number: dest, callID: this.id})
-			
-			this.rpc.call(vertoInvite, { dialogParams, sdp: sessionDescription.sdp}, data => {}, data => {})
+
+			this.rpc.call(vertoInvite, { dialogParams, sdp: sdp}, data => {}, data => {})
 		})
 
-		this.rtc.subscribeEvent('send-answer', sessionDescription => {
-			this.rpc.call(vertoAnswer, { dialogParams: {destination_number: dest, callID: this.id}, sdp: sessionDescription.sdp}, data => {}, data => {})
+		this.rtc.subscribeEvent('send-answer', sdp => {
+			this.rpc.call(vertoAnswer, { dialogParams: {destination_number: dest, callID: this.id}, sdp: sdp}, data => {}, data => {})
 		})
 
 		this.rtc.subscribeEvent('track', track => {
@@ -95,9 +96,13 @@ class VertoCall extends VertoBase{
 
 	}
 
+	setLocalSdpCallback(aCb: { (sdp: string): string }) {
+		this.rtc.setLocalSdpCallback(aCb);
+	}
+
 	onAnswer(sdp: string) {
 		if (sdp) {
-            this.rtc.onMedia(sdp)
+			this.rtc.onMedia(sdp)
 		}
         if(this.debug) console.log('answer')
 		this.dispatchEvent('answer')
@@ -178,9 +183,9 @@ class Verto extends VertoBase{
 	private options		: VertoOptions
 	private sessid		: string
 	private logged_in	: boolean = false
-	
+
 	constructor(options: VertoOptions) {
-		// 
+		//
 		super(options.debug)
 		this.options = options
 		this.rpc = new JsonRpcClient(options.transportConfig, options.debug)
@@ -197,7 +202,8 @@ class Verto extends VertoBase{
 					break
 				}
 				case vertoInvite: {
-					let call = new VertoCall(this.options.rtcConfig,this.rpc,'',params.callID, {caller_id_name: params.caller_id_name, caller_id_number: params.caller_id_number}, this.options.ice_timeout, this.options.debug)
+					let call = new VertoCall(this.options.rtcConfig, this.rpc, '', params.callID, { caller_id_name: params.caller_id_name, caller_id_number: params.caller_id_number, this.options.ice_timeout, this.options.debug)
+					call.setLocalSdpCallback(this.options.localSdpCallback)
 					call.preSdp(params.sdp)
 					this.calls[params.callID] = call
 					this.dispatchEvent('invite',call)
@@ -233,7 +239,7 @@ class Verto extends VertoBase{
 
 	call(tracks: Array<MediaStreamTrack>, destination: string, options?:VertoCallOptions): VertoCall {
 		let call = new VertoCall(this.options.rtcConfig, this.rpc, destination, generateGUID(), options, this.options.ice_timeout, this.options.debug)
-
+		call.setLocalSdpCallback(this.options.localSdpCallback)
 		for(let track of tracks) call.addTrack(track)
 		this.calls[call.id] = call
 		return call

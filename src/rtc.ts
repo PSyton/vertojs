@@ -43,6 +43,8 @@ enum CallState {
 	MessageSent,
 }
 
+let noopSdpCallback = (sdp: string) => sdp;
+
 /*
 
 Verto RTC is an interface to WebRTC
@@ -55,7 +57,8 @@ class VertoRtc extends VertoBase{
 	private presdp		: string
 	private direction	: CallDirection = CallDirection.Incoming
 	private ice_timer	: ReturnType<typeof setTimeout>
-	private ice_timeout	: number
+	private ice_timeout: number
+	private localSdpCallback = noopSdpCallback;
 
 	constructor(conf: RTCConfiguration, direction?: CallDirection, ice_timeout?: number, debug?: boolean) {
 		super(debug)
@@ -79,11 +82,17 @@ class VertoRtc extends VertoBase{
 	private onIceGatheringStateChange(event: Event){
 		if(this.pc.iceGatheringState == 'complete') {
 			if(this.ice_timer) clearTimeout(this.ice_timer)
-			if(this.state == CallState.MessageSent) return // Offer or answer is already sent
-			if(this.direction) 
-				this.dispatchEvent('send-offer',this.pc.localDescription)
-			else 
-				this.dispatchEvent('send-answer',this.pc.localDescription)
+			if (this.state == CallState.MessageSent) return // Offer or answer is already sent
+
+			let sdpType = 'local';
+			if (!this.direction) {
+				sdpType = 'remote';
+			}
+
+			if(this.direction)
+				this.dispatchEvent('send-offer', this.localSdpCallback(this.pc.localDescription.sdp))
+			else
+				this.dispatchEvent('send-answer', this.localSdpCallback(this.pc.localDescription.sdp))
 		}
 	}
 
@@ -91,10 +100,10 @@ class VertoRtc extends VertoBase{
 		if(this.debug) console.log(this.pc)
 		if(this.state != CallState.Schedulled) return // The call is not in schedulled state, do nothing
 		this.state = CallState.MessageSent
-		if(this.direction) 
-			this.dispatchEvent('send-offer',this.pc.localDescription)
-		else 
-			this.dispatchEvent('send-answer',this.pc.localDescription)
+		if(this.direction)
+			this.dispatchEvent('send-offer', this.localSdpCallback(this.pc.localDescription.sdp))
+		else
+			this.dispatchEvent('send-answer', this.localSdpCallback(this.pc.localDescription.sdp))
 	}
 
 	private onNegotiation() {
@@ -109,6 +118,10 @@ class VertoRtc extends VertoBase{
 			this.state = CallState.Schedulled
 		})
 		.catch(error => {})
+	}
+
+	setLocalSdpCallback(aCb: { (sdp: string): string }) {
+		this.localSdpCallback = aCb || noopSdpCallback;
 	}
 
 	onMedia(sdp: string) {
